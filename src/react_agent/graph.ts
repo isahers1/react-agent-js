@@ -1,17 +1,31 @@
 import { AIMessage } from "@langchain/core/messages";
 import { RunnableConfig } from "@langchain/core/runnables";
-import { MessagesAnnotation, StateGraph } from "@langchain/langgraph";
+import { StateGraph } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 
 import { ConfigurationSchema, ensureConfiguration } from "./configuration.js";
 import { TOOLS } from "./tools.js";
 import { loadChatModel } from "./utils.js";
+import { BaseMessage, BaseMessageLike } from "@langchain/core/messages";
+import { Annotation, messagesStateReducer } from "@langchain/langgraph";
+
+const StateAnnotation = Annotation.Root({
+  messages: Annotation<BaseMessage[], BaseMessageLike[]>({
+    reducer: messagesStateReducer,
+    default: () => [],
+  }),
+  lastMessageId: Annotation<string>({
+    reducer: (left, right) => right ?? left,
+    default: () => "",
+  }),
+
+});
 
 // Define the function that calls the model
 async function callModel(
-  state: typeof MessagesAnnotation.State,
+  state: typeof StateAnnotation.State,
   config: RunnableConfig,
-): Promise<typeof MessagesAnnotation.Update> {
+): Promise<typeof StateAnnotation.Update> {
   /** Call the LLM powering our agent. **/
   const configuration = ensureConfiguration(config);
 
@@ -34,7 +48,7 @@ async function callModel(
 }
 
 // Define the function that determines whether to continue or not
-function routeModelOutput(state: typeof MessagesAnnotation.State): string {
+function routeModelOutput(state: typeof StateAnnotation.State): string {
   const messages = state.messages;
   const lastMessage = messages[messages.length - 1];
   // If the LLM is invoking tools, route there.
@@ -47,9 +61,9 @@ function routeModelOutput(state: typeof MessagesAnnotation.State): string {
   }
 }
 
-// Define a new graph. We use the prebuilt MessagesAnnotation to define state:
-// https://langchain-ai.github.io/langgraphjs/concepts/low_level/#messagesannotation
-const workflow = new StateGraph(MessagesAnnotation, ConfigurationSchema)
+// Define a new graph. We use the prebuilt StateAnnotation to define state:
+// https://langchain-ai.github.io/langgraphjs/concepts/low_level/#StateAnnotation
+const workflow = new StateGraph(StateAnnotation, ConfigurationSchema)
   // Define the two nodes we will cycle between
   .addNode("callModel", callModel)
   .addNode("tools", new ToolNode(TOOLS))
